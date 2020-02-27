@@ -213,19 +213,22 @@ static void _mutex_timeout(void *arg)
 
     mutex_thread_t *mt = (mutex_thread_t *)arg;
 
-    mt->timeout = 1;
-    list_node_t *node = list_remove(&mt->mutex->queue,
-                                    (list_node_t *)&mt->thread->rq_entry);
+    if (mt->mutex->queue.next != MUTEX_LOCKED &&
+        mt->mutex->queue.next != NULL) {
+        mt->timeout = 1;
+        list_node_t *node = list_remove(&mt->mutex->queue,
+                                        (list_node_t *)&mt->thread->rq_entry);
 
-    /* if thread was removed from the list */
-    if (node != NULL) {
-        if (mt->mutex->queue.next == NULL) {
-            mt->mutex->queue.next = MUTEX_LOCKED;
+        /* if thread was removed from the list */
+        if (node != NULL) {
+            if (mt->mutex->queue.next == NULL) {
+                mt->mutex->queue.next = MUTEX_LOCKED;
+            }
+            sched_set_status(mt->thread, STATUS_PENDING);
+            irq_restore(irqstate);
+            sched_switch(mt->thread->priority);
+            return;
         }
-        sched_set_status(mt->thread, STATUS_PENDING);
-        irq_restore(irqstate);
-        sched_switch(mt->thread->priority);
-        return;
     }
     irq_restore(irqstate);
 }
@@ -252,11 +255,22 @@ static void _set_timeout_flag_callback(void* arg)
     thread_flags_set(arg, THREAD_FLAG_TIMEOUT);
 }
 
-void xtimer_set_timeout_flag(xtimer_t *t, uint32_t timeout)
+static void _set_timeout_flag_prepare(xtimer_t *t)
 {
     t->callback = _set_timeout_flag_callback;
     t->arg = (thread_t *)sched_active_thread;
     thread_flags_clear(THREAD_FLAG_TIMEOUT);
+}
+
+void xtimer_set_timeout_flag(xtimer_t *t, uint32_t timeout)
+{
+    _set_timeout_flag_prepare(t);
     xtimer_set(t, timeout);
+}
+
+void xtimer_set_timeout_flag64(xtimer_t *t, uint64_t timeout)
+{
+    _set_timeout_flag_prepare(t);
+    xtimer_set64(t, timeout);
 }
 #endif
